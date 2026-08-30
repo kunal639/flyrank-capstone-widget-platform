@@ -1,9 +1,10 @@
 # app/main.py
+import uuid
 from typing import Annotated
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel, ConfigDict
-import uuid
 
+from app.api.widgets import router as widgets_router
 from app.auth.dependencies import get_current_tenant
 from app.models.tenant import Tenant
 
@@ -24,8 +25,6 @@ def health_check():
 def read_current_tenant(
     current_tenant: Annotated[Tenant, Depends(get_current_tenant)]
 ):
-    """
-    Returns the authenticated tenant context.
-    Identity is extracted solely from the auth credential.
-    """
     return current_tenant
+
+app.include_router(widgets_router)
