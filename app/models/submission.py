@@ -11,6 +11,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.widget import Widget
     from app.models.submission_field_value import SubmissionFieldValue
+    from app.models.notification_outbox import NotificationOutbox
 
 class Submission(Base):
     __tablename__ = "submission"
@@ -78,5 +79,11 @@ class Submission(Base):
     field_values: Mapped[list["SubmissionFieldValue"]] = relationship(
         "SubmissionFieldValue",
         back_populates="submission",
+        cascade="all, delete-orphan"
+    )
+    notification_outbox: Mapped[Optional["NotificationOutbox"]] = relationship(
+        "NotificationOutbox",
+        back_populates="submission",
+        uselist=False,
         cascade="all, delete-orphan"
     )

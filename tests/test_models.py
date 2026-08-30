@@ -10,6 +10,7 @@ from app.models.field_definition import FieldDefinition
 from app.models.widget_field import WidgetField
 from app.models.submission import Submission
 from app.models.submission_field_value import SubmissionFieldValue
+from app.models.notification_outbox import NotificationOutbox
 
 @pytest.fixture
 def db():
@@ -333,6 +334,65 @@ def test_submission_constraints_and_idempotency(db):
         value_text="Invalid"
     )
     db.add(fv_invalid_wf)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+def test_notification_outbox_valid_and_defaults(db):
+    wt = WidgetType(name="outbox_test_wt_" + uuid.uuid4().hex[:6])
+    db.add(wt)
+    db.commit()
+
+    widget = Widget(title="Notification Form", widget_type_id=wt.widget_type_id, allowed_origins=[])
+    db.add(widget)
+    db.commit()
+
+    submission = Submission(widget_id=widget.widget_id, idempotency_key=f"outbox-idemp-{uuid.uuid4().hex[:6]}")
+    db.add(submission)
+    db.commit()
+
+    # Valid NotificationOutbox record
+    outbox = NotificationOutbox(submission_id=submission.submission_id)
+    db.add(outbox)
+    db.commit()
+
+    assert outbox.outbox_id is not None
+    assert outbox.submission_id == submission.submission_id
+    assert outbox.status == "pending"
+    assert outbox.attempts == 0
+    assert outbox.available_at is not None
+    assert outbox.created_at is not None
+    assert outbox.last_error is None
+    assert outbox.processed_at is None
+
+def test_notification_outbox_constraints(db):
+    wt = WidgetType(name="outbox_constraint_wt_" + uuid.uuid4().hex[:6])
+    db.add(wt)
+    db.commit()
+
+    widget = Widget(title="Outbox Constraints", widget_type_id=wt.widget_type_id, allowed_origins=[])
+    db.add(widget)
+    db.commit()
+
+    submission = Submission(widget_id=widget.widget_id, idempotency_key=f"outbox-idemp-{uuid.uuid4().hex[:6]}")
+    db.add(submission)
+    db.commit()
+
+    # 1. Invalid: Nonexistent submission_id
+    invalid_outbox = NotificationOutbox(submission_id=uuid.uuid4())
+    db.add(invalid_outbox)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+    # 2. First outbox entry for submission succeeds
+    outbox1 = NotificationOutbox(submission_id=submission.submission_id, status="pending")
+    db.add(outbox1)
+    db.commit()
+
+    # 3. Invalid: Duplicate submission_id (1:1 constraint)
+    outbox_dup = NotificationOutbox(submission_id=submission.submission_id, status="processing")
+    db.add(outbox_dup)
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()
