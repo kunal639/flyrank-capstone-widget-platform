@@ -8,6 +8,8 @@ from app.models.widget_type import WidgetType
 from app.models.widget import Widget
 from app.models.field_definition import FieldDefinition
 from app.models.widget_field import WidgetField
+from app.models.submission import Submission
+from app.models.submission_field_value import SubmissionFieldValue
 
 @pytest.fixture
 def db():
@@ -212,6 +214,125 @@ def test_widget_field_duplicate_and_invalid_foreign_keys(db):
     # 4. Invalid: Nonexistent field_id
     wf_invalid_f = WidgetField(widget_id=widget.widget_id, field_id=uuid.uuid4(), display_order=1, required=True)
     db.add(wf_invalid_f)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+def test_submission_and_field_values_valid(db):
+    wt = WidgetType(name="submission_test_wt_" + uuid.uuid4().hex[:6])
+    db.add(wt)
+    db.commit()
+
+    widget = Widget(title="Contact Form", widget_type_id=wt.widget_type_id, allowed_origins=[])
+    db.add(widget)
+    db.commit()
+
+    fd_name = FieldDefinition(field_name="name", field_type="text")
+    fd_email = FieldDefinition(field_name="email", field_type="email")
+    db.add_all([fd_name, fd_email])
+    db.commit()
+
+    wf_name = WidgetField(widget_id=widget.widget_id, field_id=fd_name.field_id, display_order=1)
+    wf_email = WidgetField(widget_id=widget.widget_id, field_id=fd_email.field_id, display_order=2)
+    db.add_all([wf_name, wf_email])
+    db.commit()
+
+    # Valid Submission with nullable geo and default notification values
+    sub = Submission(
+        widget_id=widget.widget_id,
+        idempotency_key="idemp-12345",
+        country="India",
+        city="Patna",
+        region="Bihar",
+        latitude=25.5941,
+        longitude=85.1376,
+    )
+    db.add(sub)
+    db.commit()
+    assert sub.submission_id is not None
+    assert sub.notification_status == "pending"
+    assert sub.notification_attempts == 0
+    assert sub.created_at is not None
+
+    # Add multiple field values to the submission
+    val_name = SubmissionFieldValue(
+        submission_id=sub.submission_id,
+        widget_field_id=wf_name.widget_field_id,
+        value_text="Alice"
+    )
+    val_email = SubmissionFieldValue(
+        submission_id=sub.submission_id,
+        widget_field_id=wf_email.widget_field_id,
+        value_text="alice@example.com"
+    )
+    db.add_all([val_name, val_email])
+    db.commit()
+    assert val_name.submission_field_value_id is not None
+    assert val_email.submission_field_value_id is not None
+
+def test_submission_constraints_and_idempotency(db):
+    wt = WidgetType(name="idemp_test_wt_" + uuid.uuid4().hex[:6])
+    db.add(wt)
+    db.commit()
+
+    widget = Widget(title="Feedback Widget", widget_type_id=wt.widget_type_id, allowed_origins=[])
+    db.add(widget)
+    db.commit()
+
+    fd = FieldDefinition(field_name="score", field_type="number")
+    db.add(fd)
+    db.commit()
+
+    wf = WidgetField(widget_id=widget.widget_id, field_id=fd.field_id)
+    db.add(wf)
+    db.commit()
+
+    # 1. Invalid: Nonexistent widget_id
+    invalid_sub = Submission(widget_id=uuid.uuid4(), idempotency_key="key-1")
+    db.add(invalid_sub)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+    # 2. Insert valid submission
+    sub1 = Submission(widget_id=widget.widget_id, idempotency_key="idemp-unique-1")
+    db.add(sub1)
+    db.commit()
+
+    # 3. Invalid: Duplicate (widget_id, idempotency_key)
+    sub_dup = Submission(widget_id=widget.widget_id, idempotency_key="idemp-unique-1")
+    db.add(sub_dup)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+    # 4. Insert valid field value
+    fv1 = SubmissionFieldValue(
+        submission_id=sub1.submission_id,
+        widget_field_id=wf.widget_field_id,
+        value_number=9.5
+    )
+    db.add(fv1)
+    db.commit()
+
+    # 5. Invalid: Duplicate (submission_id, widget_field_id)
+    fv_dup = SubmissionFieldValue(
+        submission_id=sub1.submission_id,
+        widget_field_id=wf.widget_field_id,
+        value_number=10.0
+    )
+    db.add(fv_dup)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+    # 6. Invalid: Nonexistent widget_field_id
+    fv_invalid_wf = SubmissionFieldValue(
+        submission_id=sub1.submission_id,
+        widget_field_id=uuid.uuid4(),
+        value_text="Invalid"
+    )
+    db.add(fv_invalid_wf)
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()

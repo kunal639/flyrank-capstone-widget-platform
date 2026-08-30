@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.tenant import Tenant
     from app.models.widget_type import WidgetType
     from app.models.widget_field import WidgetField
+    from app.models.submission import Submission
 
 class Widget(Base):
     __tablename__ = "widget"
@@ -53,6 +54,11 @@ class Widget(Base):
     )
     widget_fields: Mapped[list["WidgetField"]] = relationship(
         "WidgetField",
+        back_populates="widget",
+        cascade="all, delete-orphan"
+    )
+    submissions: Mapped[list["Submission"]] = relationship(
+        "Submission",
         back_populates="widget",
         cascade="all, delete-orphan"
     )

@@ -4,12 +4,12 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.widget import Widget
     from app.models.field_definition import FieldDefinition
+    from app.models.submission_field_value import SubmissionFieldValue
 
 class WidgetField(Base):
     __tablename__ = "widget_field"
@@ -17,16 +17,20 @@ class WidgetField(Base):
         UniqueConstraint("widget_id", "field_id", name="uq_widget_field_widget_id_field_id"),
     )
 
-    # Using composite primary key
+    widget_field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
     widget_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("widget.widget_id", ondelete="CASCADE"),
-        primary_key=True
+        nullable=False
     )
     field_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("field_definition.field_id", ondelete="CASCADE"),
-        primary_key=True
+        nullable=False
     )
     display_order: Mapped[int] = mapped_column(
         Integer,
@@ -47,4 +51,9 @@ class WidgetField(Base):
     field_definition: Mapped["FieldDefinition"] = relationship(
         "FieldDefinition",
         back_populates="widget_fields"
+    )
+    submission_values: Mapped[list["SubmissionFieldValue"]] = relationship(
+        "SubmissionFieldValue",
+        back_populates="widget_field",
+        cascade="all, delete-orphan"
     )
