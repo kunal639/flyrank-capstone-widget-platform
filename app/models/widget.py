@@ -10,6 +10,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.tenant import Tenant
     from app.models.widget_type import WidgetType
+    from app.models.widget_field import WidgetField
 
 class Widget(Base):
     __tablename__ = "widget"
@@ -49,4 +50,9 @@ class Widget(Base):
     widget_type: Mapped["WidgetType"] = relationship(
         "WidgetType",
         back_populates="widgets"
+    )
+    widget_fields: Mapped[list["WidgetField"]] = relationship(
+        "WidgetField",
+        back_populates="widget",
+        cascade="all, delete-orphan"
     )
