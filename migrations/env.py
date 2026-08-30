@@ -4,8 +4,8 @@ from logging.config import fileConfig
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 from alembic import context
-
-from app.db.session import Base
+import app.models 
+from app.db.base import Base
 
 load_dotenv()
 
