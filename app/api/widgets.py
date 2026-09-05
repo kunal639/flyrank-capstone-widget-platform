@@ -143,6 +143,7 @@ def get_public_widget_config(
         .all()
     )
     response.headers["Cache-Control"] = "public, max-age=60"
+    response.headers["Access-Control-Allow-Origin"] = "*"
     return {
         "widget_id": widget.widget_id,
         "widget_type": widget.widget_type.name,

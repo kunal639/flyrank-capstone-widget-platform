@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
-
+from fastapi.staticfiles import StaticFiles
 from app.api.widgets import router as widgets_router
 from app.api.submissions import router as submissions_router
 from app.auth.dependencies import get_current_tenant
@@ -18,6 +18,9 @@ MAX_PUBLIC_SUBMISSION_BYTES = int(
     os.getenv("MAX_PUBLIC_SUBMISSION_BYTES", str(64 * 1024))
 )
 
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "widget")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.middleware("http")
 async def limit_public_submission_size(request: Request, call_next):

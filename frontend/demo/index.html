@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Website — Widget Demo</title>
+</head>
+<body>
+  <div style="max-width: 600px; margin: 40px auto; font-family: sans-serif;">
+    <h2>Demo Customer Website</h2>
+    <p>This page embeds the widget from a separate origin.</p>
+
+    <!-- Use the real UUID printed above -->
+    <script
+      src="http://localhost:8000/static/widget.js"
+      data-widget-id="eccdb50f-6808-42e9-8091-a920d49878b8"
+      data-api-base="http://localhost:8000">
+    </script>
+  </div>
+</body>
+</html>
