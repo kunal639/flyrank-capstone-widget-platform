@@ -403,3 +403,111 @@ def test_get_public_widget_config_returns_404_for_missing_widget(client):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Widget not found"
+
+def test_public_widget_config_requires_no_auth(client, tenants_and_types, db):
+    tenant, _, wt = tenants_and_types
+    widget = Widget(
+        title="No Auth Widget",
+        widget_type_id=wt.widget_type_id,
+        tenant_id=tenant.tenant_id,
+        allowed_origins=[],
+    )
+    db.add(widget)
+    db.commit()
+
+    # Public caller without Authorization header
+    response = client.get(f"/widgets/{widget.widget_id}/config")
+    assert response.status_code == 200
+    assert response.json()["widget_id"] == str(widget.widget_id)
+
+
+def test_public_widget_config_empty_fields(client, tenants_and_types, db):
+    tenant, _, wt = tenants_and_types
+    widget = Widget(
+        title="Empty Config Widget",
+        widget_type_id=wt.widget_type_id,
+        tenant_id=tenant.tenant_id,
+        allowed_origins=[],
+    )
+    db.add(widget)
+    db.commit()
+
+    response = client.get(f"/widgets/{widget.widget_id}/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["fields"] == []
+
+
+def test_public_widget_config_returns_fields_in_display_order(
+    client, tenants_and_types, db
+):
+    tenant, _, wt = tenants_and_types
+    widget = Widget(
+        title="Ordered Widget",
+        widget_type_id=wt.widget_type_id,
+        tenant_id=tenant.tenant_id,
+        allowed_origins=[],
+    )
+    fd1 = FieldDefinition(field_name="last_field", field_type="text")
+    fd2 = FieldDefinition(field_name="first_field", field_type="text")
+    fd3 = FieldDefinition(field_name="middle_field", field_type="text")
+    db.add_all([widget, fd1, fd2, fd3])
+    db.commit()
+
+    # Insert out of order
+    db.add_all(
+        [
+            WidgetField(
+                widget_id=widget.widget_id,
+                field_id=fd1.field_id,
+                display_order=20,
+                required=False,
+            ),
+            WidgetField(
+                widget_id=widget.widget_id,
+                field_id=fd2.field_id,
+                display_order=5,
+                required=True,
+            ),
+            WidgetField(
+                widget_id=widget.widget_id,
+                field_id=fd3.field_id,
+                display_order=10,
+                required=False,
+            ),
+        ]
+    )
+    db.commit()
+
+    response = client.get(f"/widgets/{widget.widget_id}/config")
+    assert response.status_code == 200
+    names = [f["name"] for f in response.json()["fields"]]
+    assert names == ["first_field", "middle_field", "last_field"]
+
+
+def test_public_widget_config_does_not_expose_private_tenant_data(
+    client, tenants_and_types, db
+):
+    tenant, _, wt = tenants_and_types
+    widget = Widget(
+        title="Safe Config Widget",
+        widget_type_id=wt.widget_type_id,
+        tenant_id=tenant.tenant_id,
+        allowed_origins=["https://private-domain.internal"],
+    )
+    db.add(widget)
+    db.commit()
+
+    response = client.get(f"/widgets/{widget.widget_id}/config")
+    assert response.status_code == 200
+    data = response.json()
+
+    # Ensure no tenant-identifying or internal storage fields are leaked
+    assert "tenant_id" not in data
+    assert "allowed_origins" not in data
+    assert "customer_name" not in data
+    assert "customer_email" not in data
+    assert "created_at" not in data
+    assert "updated_at" not in data
+    for field in data["fields"]:
+        assert "widget_field_id" not in field
