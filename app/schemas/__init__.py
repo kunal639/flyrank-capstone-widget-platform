@@ -6,6 +6,14 @@ from app.schemas.widget import (
     WidgetSummary,
     WidgetUpdate,
 )
+from app.schemas.widget_field import (
+    WidgetFieldConfigItem,
+    WidgetFieldConfigureRequest,
+    WidgetFieldItemResponse,
+    WidgetFieldListResponse,
+    WidgetFieldSingleAddRequest,
+    WidgetFieldUpdateRequest,
+)
 
 __all__ = [
     "WidgetCreate",
@@ -13,4 +21,10 @@ __all__ = [
     "WidgetResponse",
     "WidgetSummary",
     "WidgetListResponse",
+    "WidgetFieldConfigItem",
+    "WidgetFieldConfigureRequest",
+    "WidgetFieldItemResponse",
+    "WidgetFieldListResponse",
+    "WidgetFieldSingleAddRequest",
+    "WidgetFieldUpdateRequest",
 ]

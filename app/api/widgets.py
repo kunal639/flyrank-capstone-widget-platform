@@ -1,17 +1,21 @@
 # app/api/widgets.py
 import uuid
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth.dependencies import get_current_tenant
 from app.db.session import get_db
 from app.models.tenant import Tenant
+from app.models.field_definition import FieldDefinition
+from app.models.widget import Widget
+from app.models.widget_field import WidgetField
 from app.models.widget_type import WidgetType
 from app.repositories.widget import WidgetRepository
 from app.schemas.widget import (
     WidgetCreate,
     WidgetListResponse,
+    PublicWidgetConfigResponse,
     WidgetResponse,
     WidgetUpdate,
 )
@@ -108,3 +112,48 @@ def delete_widget(
     repo.delete(widget)
     db.commit()
     return None
+
+
+@router.get("/{widget_id}/config", response_model=PublicWidgetConfigResponse)
+def get_public_widget_config(
+    widget_id: uuid.UUID,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+):
+    widget = (
+        db.query(Widget)
+        .options(joinedload(Widget.widget_type))
+        .filter(Widget.widget_id == widget_id)
+        .first()
+    )
+    if not widget:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Widget not found",
+        )
+
+    configured_fields = (
+        db.query(WidgetField, FieldDefinition)
+        .join(
+            FieldDefinition,
+            WidgetField.field_id == FieldDefinition.field_id,
+        )
+        .filter(WidgetField.widget_id == widget.widget_id)
+        .order_by(WidgetField.display_order)
+        .all()
+    )
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return {
+        "widget_id": widget.widget_id,
+        "widget_type": widget.widget_type.name,
+        "title": widget.title,
+        "fields": [
+            {
+                "field_id": widget_field.field_id,
+                "name": field_definition.field_name,
+                "type": field_definition.field_type,
+                "required": widget_field.required,
+            }
+            for widget_field, field_definition in configured_fields
+        ],
+    }

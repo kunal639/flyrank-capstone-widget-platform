@@ -3,6 +3,7 @@ import uuid
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.widget import Widget
+from app.models.widget_field import WidgetField
 
 class WidgetRepository:
     def __init__(self, db: Session):
@@ -60,3 +61,23 @@ class WidgetRepository:
     def delete(self, widget: Widget) -> None:
         self.db.delete(widget)
         self.db.flush()
+
+    def replace_fields(
+        self, widget: Widget, fields: list[dict[str, object]]
+    ) -> list[WidgetField]:
+        self.db.query(WidgetField).filter(
+            WidgetField.widget_id == widget.widget_id
+        ).delete(synchronize_session=False)
+
+        widget_fields = [
+            WidgetField(
+                widget_id=widget.widget_id,
+                field_id=field["field_id"],
+                display_order=field["display_order"],
+                required=field["required"],
+            )
+            for field in fields
+        ]
+        self.db.add_all(widget_fields)
+        self.db.flush()
+        return widget_fields

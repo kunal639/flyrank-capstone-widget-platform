@@ -48,7 +48,10 @@ Makes sure the submitted data matches the fields the widget was set up to collec
 Guards the public submission endpoint against bots, abuse, and excessive traffic.
 
 **Geo Enrichment**
-Tries to figure out the visitor's location and attach it to the submission. It first tries a primary provider, and if that fails, falls back to a secondary one. If both fail, the submission is still saved — just without location data.
+Tries to figure out the visitor's location and attach it to the submission. It
+first tries ipapi.co and, if that fails, falls back to ipwho.is. Both use a
+short timeout. If both fail, the submission is still saved — just without
+location data.
 
 **PostgreSQL**
 The main database. It stores tenants, widgets, field definitions, widget-field settings, submissions, the values submitted for each field, and other application data.
@@ -57,7 +60,9 @@ The main database. It stores tenants, widgets, field definitions, widget-field s
 A record created for each successfully saved submission, marking that a notification needs to be sent.
 
 **Background Worker**
-A separate process that handles sending notifications. It runs independently of the visitor's request and retries a limited number of times if a notification fails to send.
+A separate process that handles sending notifications. It runs independently of
+the visitor's request and retries a limited number of times if a notification
+fails to send. Run it with `uv run python -m app.worker`.
 
 **Dashboard API**
 Gives authenticated customers secure access to their own submissions and basic stats.

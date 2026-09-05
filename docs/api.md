@@ -158,6 +158,21 @@ Sets which fields a widget uses.
 - invalid field settings
 - any attempt to modify a widget that belongs to a different tenant
 
+**Response:** `200 OK`
+```json
+{
+  "widget_id": "uuid",
+  "fields": [
+    {
+      "widget_field_id": "uuid",
+      "field_id": "uuid",
+      "display_order": 1,
+      "required": true
+    }
+  ]
+}
+```
+
 ---
 
 ## Public Widget Configuration
@@ -193,6 +208,7 @@ Returns the public settings the embedded widget needs to render itself. This res
 ```
 
 This endpoint's responses should be cacheable where it makes sense, since the same config gets fetched repeatedly by every visitor.
+The current implementation sends `Cache-Control: public, max-age=60`.
 
 ---
 
@@ -207,14 +223,25 @@ Receives a submission from an embedded widget, tied to a specific widget.
 **Request**
 ```json
 {
+  "widget_id": "uuid",
   "idempotency_key": "client-generated-key",
-  "visitor_email": "visitor@example.com",
+  "honeypot": "",
   "fields": {
     "email": "visitor@example.com",
     "message": "Hello"
   }
 }
 ```
+
+`widget_id` identifies the public widget receiving the submission. The API
+loads that widget and its configured fields server-side; the ID is not used as
+tenant authorization.
+
+Visitor email, when collected, is submitted through a configured `email`
+field rather than a separate top-level value.
+
+The optional `honeypot` value is rendered as a hidden field by the embed. It
+must be empty; a non-empty value is rejected as an invalid submission.
 
 **What happens along the way:**
 
@@ -252,6 +279,11 @@ The database transaction saves:
 
 Importantly, the response to the visitor should never depend on whether the notification was sent successfully — that happens separately, afterward.
 
+For global client IP addresses, the server attempts optional geo enrichment
+with ipapi.co and then ipwho.is. Provider errors, timeouts, unavailable
+providers, and non-global addresses result in no geo data; they never reject a
+submission.
+
 ### Idempotency
 
 This endpoint accepts an idempotency key so the same request can't accidentally create duplicate submissions.
@@ -260,14 +292,20 @@ This endpoint accepts an idempotency key so the same request can't accidentally 
 - The idempotency key is only used to spot duplicates.
 - The rule enforced is: `UNIQUE(widget_id, idempotency_key)`
 - Sending the same idempotency key twice should never create two submissions.
+- A duplicate key currently returns `409 Conflict`.
 
 ### CORS and Origin Handling
 
 This endpoint supports cross-origin requests from browsers.
 
 - Preflight requests use `OPTIONS /submissions`.
-- The API should respond correctly for allowed origins.
-- If a widget has specific allowed origins configured, requests from any other origin must be rejected.
+- Preflight supports browser negotiation but is not the authorization boundary,
+  because it has no request body from which to identify a widget.
+- The actual `POST /submissions` loads the body-supplied `widget_id` and
+  validates its `Origin` against that widget's configured origins.
+- If a widget has specific allowed origins configured, requests from any other
+  origin (including a request without an `Origin` header) are rejected with
+  `403`; allowed requests receive `Access-Control-Allow-Origin`.
 - A widget is also allowed to have no origin restrictions configured at all.
 
 ### Validation Errors
@@ -307,6 +345,19 @@ When someone goes over the limit:
 
 Once the rate-limit window passes, normal requests should be able to succeed again.
 
+The current development configuration allows 10 requests per widget and client
+IP address in a 60-second sliding window. It is configurable with
+`PUBLIC_SUBMISSION_RATE_LIMIT` and `PUBLIC_SUBMISSION_RATE_WINDOW_SECONDS`.
+The implementation is in-memory and therefore applies only within one process;
+it is appropriate for this capstone environment, not distributed production
+rate limiting.
+
+### Request Size Limit
+
+`POST /submissions` accepts request bodies up to 64 KiB by default. Larger
+requests receive `413 Payload Too Large`. Set `MAX_PUBLIC_SUBMISSION_BYTES` to
+change this development limit.
+
 ---
 
 ## Dashboard
@@ -319,11 +370,16 @@ All dashboard endpoints require authentication, and every resource returned is s
 
 Returns submissions belonging to the logged-in tenant. Filtering options can be added later as needed.
 
+The response includes each submission's configured field values, timestamp,
+available geo data, and notification status. Values are returned with their
+field name and declared type.
+
 ### Get Submission
 
 `GET /submissions/:submission_id`
 
 Returns a submission — only if it belongs to the logged-in tenant.
+Cross-tenant and missing submissions return `404`.
 
 ### Widget Submission Statistics
 
@@ -375,6 +431,13 @@ Notification Provider
 ```
 
 A failed notification should never undo or invalidate a submission that's already been saved. The worker retries a limited number of times and records the final outcome.
+
+The worker processes `pending` and `retry` outbox entries separately from the
+submission request. Successful delivery marks the submission and outbox entry
+`succeeded`; failures retry three times with exponential backoff (60 seconds,
+then 120 seconds) before becoming `failed`. Set `NOTIFICATION_WEBHOOK_URL` to
+deliver a minimal submission event to a webhook; without it, entries retry and
+eventually fail without affecting persisted submissions.
 
 ---
 
