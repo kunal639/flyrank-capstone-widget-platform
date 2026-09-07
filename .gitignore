@@ -11,3 +11,7 @@ wheels/
 
 # environment variables
 .env
+*.db
+*.sqlite3
+.pytest_cache/
+.venv/

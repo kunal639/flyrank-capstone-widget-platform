@@ -235,7 +235,17 @@ def create_submission(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Duplicate idempotency key for this widget",
             ) from error
-        raise
+    except IntegrityError as error:
+        db.rollback()
+        if "uq_submission_widget_id_idempotency_key" in str(error.orig):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Duplicate idempotency key for this widget",
+            ) from error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while saving the submission",
+        ) from None
 
     return {"submission_id": submission.submission_id}
 
