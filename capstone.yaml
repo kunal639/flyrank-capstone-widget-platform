@@ -1,0 +1,16 @@
+# capstone.yaml
+name: "flyrank-capstone-widget-platform"
+description: "Embeddable widget platform with tenant isolation, rate limiting, and transactional outbox processing."
+version: "1.0.0"
+stack:
+  language: "python"
+  runtime: "3.11"
+  framework: "fastapi"
+  database: "postgresql"
+  orm: "sqlalchemy"
+  migrations: "alembic"
+  frontend: "vanilla-js"
+entrypoints:
+  api: "app.main:app"
+  worker: "app.worker"
+test_command: "uv run pytest -q"
