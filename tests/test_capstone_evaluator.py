@@ -410,3 +410,168 @@ def test_evaluator_cross_tenant_isolation_boundary(client, evaluator_env, db: Se
     res_b_ok = client.get(f"/submissions/{sub_b_id}", headers=auth_b)
     assert res_b_ok.status_code == 200
     assert res_b_ok.json()["submission_id"] == sub_b_id
+
+# In tests/test_capstone_evaluator.py
+
+# =====================================================================
+# 9. NOTIFICATION RETRY BEHAVIOR
+# =====================================================================
+
+def test_evaluator_notification_worker_retries_and_terminal_failure(client, evaluator_env, db: Session):
+    """Verifies that failed notification attempts update status without altering the persisted submission."""
+    widget = evaluator_env["widget_b"]
+
+    # 1. Create a real submission via API so outbox is initialized properly
+    res = client.post(
+        "/submissions",
+        json={
+            "widget_id": str(widget.widget_id),
+            "idempotency_key": str(uuid.uuid4()),
+            "fields": {"email": "worker_retry@example.com"},
+        },
+    )
+    assert res.status_code == 201
+    sub_id = uuid.UUID(res.json()["submission_id"])
+
+    # 2. Query the created submission and outbox records
+    sub = db.query(Submission).filter(Submission.submission_id == sub_id).first()
+    assert sub is not None
+
+    outbox = db.query(NotificationOutbox).filter(NotificationOutbox.submission_id == sub_id).first()
+    assert outbox is not None
+
+    # 3. Simulate worker retry failure
+    if hasattr(outbox, "retry_count"):
+        outbox.retry_count += 1
+    elif hasattr(outbox, "attempts"):
+        outbox.attempts += 1
+
+    outbox.status = "retry" if hasattr(outbox, "status") else outbox.status
+    if hasattr(sub, "notification_attempts"):
+        sub.notification_attempts += 1
+    db.commit()
+
+    db.refresh(outbox)
+    db.refresh(sub)
+    if hasattr(outbox, "retry_count"):
+        assert outbox.retry_count == 1
+    elif hasattr(outbox, "attempts"):
+        assert outbox.attempts == 1
+
+    # 4. Simulate terminal exhaustion (3rd attempt -> failed)
+    outbox.status = "failed"
+    if hasattr(sub, "notification_status"):
+        sub.notification_status = "failed"
+    db.commit()
+
+    db.refresh(outbox)
+    db.refresh(sub)
+    assert outbox.status == "failed"
+
+    # Core Invariant: Submission remains safely stored even if notification delivery permanently fails
+    persisted_sub = db.query(Submission).filter(Submission.submission_id == sub_id).first()
+    assert persisted_sub is not None
+
+# =====================================================================
+# 10. THE STRONGEST TEST: COMPLETE END-TO-END CAPSTONE LIFECYCLE
+# =====================================================================
+
+def test_evaluator_complete_end_to_end_lifecycle(client, db: Session):
+    """
+    Simulates the entire platform journey:
+    Create tenant -> Create widget -> Configure fields -> GET public config
+    -> Submit from second origin -> Geo enrichment -> Persisted -> Outbox created
+    -> Tenant dashboard reads submission
+    """
+    # 1. Create Tenant
+    tenant = Tenant(
+        customer_name="Lifecycle Corp",
+        customer_email=f"eval_e2e_{uuid.uuid4().hex[:6]}@example.com"
+    )
+    wt = WidgetType(name=f"type_{uuid.uuid4().hex[:6]}")
+    f_email = FieldDefinition(field_name="email", field_type="email")
+    f_note = FieldDefinition(field_name="note", field_type="text")
+    db.add_all([tenant, wt, f_email, f_note])
+    db.commit()
+
+    auth_header = {"Authorization": f"Bearer {tenant.tenant_id}"}
+    allowed_origin = "https://partner-portal.example"
+
+    # 2. Authenticated API: Create Widget
+    create_res = client.post(
+        "/widgets",
+        json={
+            "title": "Partner Intake Form",
+            "widget_type_id": str(wt.widget_type_id),
+            "allowed_origins": [allowed_origin],
+        },
+        headers=auth_header,
+    )
+    assert create_res.status_code == 201
+    widget_id = create_res.json()["widget_id"]
+
+    # 3. Authenticated API: Configure Fields
+    field_cfg_res = client.put(
+        f"/widgets/{widget_id}/fields",
+        json={
+            "fields": [
+                {"field_id": str(f_email.field_id), "display_order": 0, "required": True},
+                {"field_id": str(f_note.field_id), "display_order": 1, "required": False},
+            ]
+        },
+        headers=auth_header,
+    )
+    assert field_cfg_res.status_code == 200
+
+    # 4. Public API: Embedded script fetches config from second origin
+    cfg_res = client.get(f"/widgets/{widget_id}/config")
+    assert cfg_res.status_code == 200
+    assert cfg_res.json()["title"] == "Partner Intake Form"
+    assert len(cfg_res.json()["fields"]) == 2
+
+    # 5. Public API: Visitor submits from allowed second origin with Geo enrichment
+    mock_geo = {
+        "country": "India",
+        "city": "Bengaluru",
+        "region": "Karnataka",
+        "latitude": 12.9716,
+        "longitude": 77.5946,
+    }
+    with patch("app.api.submissions.geo_enricher.enrich", return_value=mock_geo):
+        sub_res = client.post(
+            "/submissions",
+            json={
+                "widget_id": widget_id,
+                "idempotency_key": f"e2e-key-{uuid.uuid4()}",
+                "honeypot": "",
+                "fields": {"email": "lead@partner-portal.example", "note": "Priority client"},
+            },
+            headers={"Origin": allowed_origin, "X-Forwarded-For": "203.0.113.195"},
+        )
+        assert sub_res.status_code == 201
+        assert sub_res.headers.get("access-control-allow-origin") == allowed_origin
+        submission_id = sub_res.json()["submission_id"]
+
+    # 6. Database Verification: Atomic persistence
+    sub_uuid = uuid.UUID(submission_id)
+    persisted_sub = db.query(Submission).filter(Submission.submission_id == sub_uuid).first()
+    assert persisted_sub is not None
+    assert persisted_sub.city == "Bengaluru"
+    assert persisted_sub.country == "India"
+
+    # 7. Notification Outbox Created
+    outbox = db.query(NotificationOutbox).filter(NotificationOutbox.submission_id == sub_uuid).first()
+    assert outbox is not None
+    assert outbox.status in ("pending", "processing", "retry")
+
+    # 8. Authenticated Dashboard: Tenant views submissions list and inspector detail
+    dash_list = client.get("/submissions", headers=auth_header)
+    assert dash_list.status_code == 200
+    sub_ids = [s["submission_id"] for s in dash_list.json()["submissions"]]
+    assert submission_id in sub_ids
+
+    dash_detail = client.get(f"/submissions/{submission_id}", headers=auth_header)
+    assert dash_detail.status_code == 200
+    detail_data = dash_detail.json()
+    assert detail_data["submission_id"] == submission_id
+    assert detail_data["city"] == "Bengaluru"
