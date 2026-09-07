@@ -1,6 +1,5 @@
 // frontend/dashboard/app.js
 let currentWidgetId = null;
-let fieldDefinitionsCache = [];
 
 function getAuthHeader() {
   const token = localStorage.getItem("tenant_token") || "";
@@ -11,20 +10,31 @@ function getAuthHeader() {
   };
 }
 
-function resetOpenPanels() {
-  // Hide field config panel and clear active widget reference
-  closeFieldConfig();
-  
-  // Hide submission detail panel
-  closeSubmissionDetail();
+// Boot handler: Load token from localStorage
+window.addEventListener("DOMContentLoaded", () => {
+  const saved = localStorage.getItem("tenant_token");
+  if (saved) {
+    document.getElementById("tenantToken").value = saved;
+    loadWidgets();
+    loadSubmissions();
+  }
+});
 
-  // Hide create widget card if open
-  hideCreateWidgetModal();
+// ----------------- UI CONTROLS & NAVIGATION ----------------- //
+
+function showCreateWidgetModal() {
+  document.getElementById("createWidgetCard").style.display = "block";
+}
+
+function hideCreateWidgetModal() {
+  document.getElementById("createWidgetCard").style.display = "none";
+  document.getElementById("newWidgetTitle").value = "";
+  document.getElementById("newWidgetOrigins").value = "";
 }
 
 function notify(msg, isError = false) {
   const box = document.getElementById("statusAlert");
-  box.innerHTML = `<div class="alert ${isError ? 'alert-error' : 'alert-success'}">${msg}</div>`;
+  box.innerHTML = `<div class="alert ${isError ? 'alert-error' : 'alert-success'}" style="padding: 10px; margin-bottom: 12px; border-radius: 6px; background: ${isError ? '#fee2e2' : '#dcfce7'}; color: ${isError ? '#991b1b' : '#166534'};">${msg}</div>`;
   setTimeout(() => { box.innerHTML = ""; }, 4000);
 }
 
@@ -32,7 +42,6 @@ function saveToken() {
   const token = document.getElementById("tenantToken").value.trim();
   localStorage.setItem("tenant_token", token);
 
-  // Explicitly close open detail panels on auth change
   closeFieldConfig();
   closeSubmissionDetail();
 
@@ -62,12 +71,11 @@ async function loadWidgets() {
   try {
     const res = await fetch("/widgets", { headers: getAuthHeader() });
     if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+      if (res.status === 401 || res.status === 403) {
         closeFieldConfig();
+      }
+      throw new Error(`HTTP ${res.status}`);
     }
-    throw new Error(`HTTP ${res.status}`);
-    }
-    
 
     const data = await res.json();
     const tbody = document.getElementById("widgetsTableBody");
@@ -75,7 +83,7 @@ async function loadWidgets() {
 
     const widgets = data.widgets || [];
     if (widgets.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="3">No widgets found for this tenant.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="3">No widgets found for this workspace. Click "+ New Widget" above.</td></tr>`;
       return;
     }
 
@@ -85,7 +93,7 @@ async function loadWidgets() {
         <td><strong>${w.title}</strong></td>
         <td><code>${w.widget_id}</code></td>
         <td>
-          <button class="btn btn-primary" onclick="openFieldConfig('${w.widget_id}', '${w.title}')">Fields</button>
+          <button class="btn btn-primary" onclick="openFieldConfig('${w.widget_id}', '${w.title.replace(/'/g, "\\'")}')">Fields</button>
           <button class="btn btn-danger" onclick="deleteWidget('${w.widget_id}')">Delete</button>
         </td>
       `;
@@ -101,10 +109,10 @@ async function createWidget() {
   const title = document.getElementById("newWidgetTitle").value.trim();
   const widget_type_id = document.getElementById("newWidgetTypeId").value.trim();
   const rawOrigins = document.getElementById("newWidgetOrigins").value.trim();
-  const allowed_origins = rawOrigins ? rawOrigins.split(",").map(s => s.trim()) : [];
+  const allowed_origins = rawOrigins ? rawOrigins.split(",").map(s => s.trim()).filter(Boolean) : [];
 
-  if (!title || !widget_type_id) {
-    notify("Title and Widget Type ID are required", true);
+  if (!title) {
+    notify("Title is required", true);
     return;
   }
 
@@ -112,9 +120,18 @@ async function createWidget() {
     const res = await fetch("/widgets", {
       method: "POST",
       headers: getAuthHeader(),
-      body: JSON.stringify({ title, widget_type_id, allowed_origins })
+      body: JSON.stringify({ 
+        title, 
+        widget_type_id: widget_type_id || undefined, 
+        allowed_origins 
+      })
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+
     notify("Widget created successfully");
     hideCreateWidgetModal();
     loadWidgets();
@@ -130,7 +147,7 @@ async function deleteWidget(widgetId) {
       method: "DELETE",
       headers: getAuthHeader()
     });
-    if (res.status !== 204) throw new Error(`HTTP ${res.status}`);
+    if (res.status !== 204 && res.status !== 200) throw new Error(`HTTP ${res.status}`);
     notify("Widget deleted");
     loadWidgets();
   } catch (err) {
@@ -147,24 +164,12 @@ async function openFieldConfig(widgetId, widgetTitle) {
   card.style.display = "block";
 
   try {
-    // 1. Fetch all system field definitions (or common fields)
-    let defsRes = await fetch("/field-definitions", { credentials: "omit" }).catch(() => null);
-    if (!defsRes || !defsRes.ok) {
-      // Fallback standard fields if GET /field-definitions is not directly exposed
-      fieldDefinitionsCache = [
-        { field_id: "00000000-0000-0000-0000-000000000001", field_name: "email", field_type: "email" },
-        { field_id: "00000000-0000-0000-0000-000000000002", field_name: "message", field_type: "text" }
-      ];
-    }
-
-    // 2. Fetch current widget fields
-    const wfRes = await fetch(`/widgets/${widgetId}/fields`, { credentials: "omit", headers: getAuthHeader() });
+    const wfRes = await fetch(`/widgets/${widgetId}/fields`, { headers: getAuthHeader() });
     let activeFields = [];
     if (wfRes.ok) {
       const data = await wfRes.json();
       activeFields = data.fields || [];
     }
-
     renderFieldConfigList(activeFields);
   } catch (err) {
     notify(`Error loading field configuration: ${err.message}`, true);
@@ -176,18 +181,21 @@ function renderFieldConfigList(activeFields) {
   container.innerHTML = "";
 
   if (activeFields.length === 0) {
-    container.innerHTML = `<p style="font-size:0.85rem;color:#64748b;">No fields configured yet. Add fields below.</p>`;
+    container.innerHTML = `<p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">No fields currently configured for this widget.</p>`;
   }
 
   activeFields.forEach((f, idx) => {
+    const fieldName = f.field_name || f.field_definition?.field_name || f.name || f.field_id;
     const div = document.createElement("div");
     div.className = "field-row";
+    div.style.cssText = "display: flex; gap: 12px; align-items: center; margin-bottom: 8px;";
     div.innerHTML = `
-      <span style="width: 250px;"><code>${f.field_id}</code></span>
-      <label>Order:
-        <input type="number" class="field-order" data-fid="${f.field_id}" value="${f.display_order ?? idx}" style="width: 50px; padding: 2px;">
+      <span style="min-width: 140px; font-weight: 500;">${fieldName}</span>
+      <code style="font-size: 0.75rem; color: #64748b;">${f.field_id.slice(0, 8)}...</code>
+      <label style="font-size: 0.8rem;">Order:
+        <input type="number" class="field-order" data-fid="${f.field_id}" value="${Number.isInteger(f.display_order) ? f.display_order : idx}" style="width: 50px; padding: 2px;">
       </label>
-      <label>
+      <label style="font-size: 0.8rem;">
         <input type="checkbox" class="field-req" data-fid="${f.field_id}" ${f.required ? 'checked' : ''}> Required
       </label>
     `;
@@ -204,9 +212,11 @@ async function saveFieldConfiguration() {
   rows.forEach(r => {
     const orderInp = r.querySelector(".field-order");
     const reqInp = r.querySelector(".field-req");
+    const parsedOrder = parseInt(orderInp.value, 10);
+
     payloadFields.push({
       field_id: orderInp.getAttribute("data-fid"),
-      display_order: parseInt(orderInp.value, 10),
+      display_order: Number.isNaN(parsedOrder) ? 0 : parsedOrder,
       required: reqInp.checked
     });
   });
@@ -217,10 +227,12 @@ async function saveFieldConfiguration() {
       headers: getAuthHeader(),
       body: JSON.stringify({ fields: payloadFields })
     });
+
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.detail || `HTTP ${res.status}`);
     }
+
     notify("Widget fields successfully updated");
   } catch (err) {
     notify(`Validation failed: ${err.message}`, true);
@@ -228,7 +240,8 @@ async function saveFieldConfiguration() {
 }
 
 function closeFieldConfig() {
-  document.getElementById("fieldConfigCard").style.display = "none";
+  const card = document.getElementById("fieldConfigCard");
+  if (card) card.style.display = "none";
   currentWidgetId = null;
 }
 
@@ -237,25 +250,25 @@ function closeFieldConfig() {
 async function loadSubmissions() {
   const tbody = document.getElementById("submissionsTableBody");
   try {
-    const res = await fetch("/submissions", { credentials: "omit", headers: getAuthHeader() });
+    const res = await fetch("/submissions", { headers: getAuthHeader() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const subs = data.submissions || [];
 
     tbody.innerHTML = "";
     if (subs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4">No submissions found.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4">No submissions recorded yet.</td></tr>`;
       return;
     }
 
     subs.forEach(s => {
       const tr = document.createElement("tr");
-      const summary = s.field_values ? JSON.stringify(s.field_values).slice(0, 40) + "..." : "No fields";
+      const summary = s.field_values ? JSON.stringify(s.field_values).slice(0, 45) + "..." : "No fields";
       const geo = s.geo ? `${s.geo.city || ''} ${s.geo.country || ''}`.trim() : "Direct / Local";
       tr.innerHTML = `
         <td><code>${s.submission_id.slice(0, 8)}...</code></td>
         <td>${summary}</td>
-        <td><span class="badge">${geo || "Unknown"}</span></td>
+        <td><span class="badge" style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:11px;">${geo || "Direct"}</span></td>
         <td>
           <button class="btn btn-secondary" onclick="viewSubmission('${s.submission_id}')">View</button>
         </td>
@@ -269,7 +282,7 @@ async function loadSubmissions() {
 
 async function viewSubmission(subId) {
   try {
-    const res = await fetch(`/submissions/${subId}`, { credentials: "omit", headers: getAuthHeader() });
+    const res = await fetch(`/submissions/${subId}`, { headers: getAuthHeader() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
@@ -281,9 +294,9 @@ async function viewSubmission(subId) {
       <p><strong>Widget ID:</strong> <code>${data.widget_id}</code></p>
       <p><strong>Created At:</strong> ${data.created_at || 'N/A'}</p>
       <h4 style="margin-top:0.75rem;">Submitted Fields:</h4>
-      <pre style="background:#f1f5f9; padding:0.75rem; border-radius:4px; margin:0.5rem 0;">${JSON.stringify(data.fields || data.field_values, null, 2)}</pre>
+      <pre style="background:#f1f5f9; padding:0.75rem; border-radius:4px; margin:0.5rem 0; font-size:12px;">${JSON.stringify(data.fields || data.field_values, null, 2)}</pre>
       <h4 style="margin-top:0.75rem;">Enrichment / Geo:</h4>
-      <pre style="background:#f1f5f9; padding:0.75rem; border-radius:4px; margin:0.5rem 0;">${JSON.stringify(data.geo || {}, null, 2)}</pre>
+      <pre style="background:#f1f5f9; padding:0.75rem; border-radius:4px; margin:0.5rem 0; font-size:12px;">${JSON.stringify(data.geo || {}, null, 2)}</pre>
     `;
     panel.style.display = "block";
   } catch (err) {
@@ -292,14 +305,6 @@ async function viewSubmission(subId) {
 }
 
 function closeSubmissionDetail() {
-  document.getElementById("submissionDetailCard").style.display = "none";
+  const panel = document.getElementById("submissionDetailCard");
+  if (panel) panel.style.display = "none";
 }
-
-// Initialize on page load
-window.addEventListener("DOMContentLoaded", () => {
-  const saved = localStorage.getItem("tenant_token");
-  if (saved) {
-    document.getElementById("tenantToken").value = saved;
-    loadWidgets();
-  }
-});
