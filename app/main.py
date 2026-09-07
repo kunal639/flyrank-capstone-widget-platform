@@ -1,16 +1,17 @@
 # app/main.py
 import os
 import uuid
+from pathlib import Path
 from typing import Annotated
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict
 from app.api.widgets import router as widgets_router
 from app.api.submissions import router as submissions_router
+from app.api.widget_fields import router as widget_fields_router
 from app.auth.dependencies import get_current_tenant
 from app.models.tenant import Tenant
-from app.api.widget_fields import router as widget_fields_router
 
 app = FastAPI(title="Widget Platform API")
 
@@ -18,9 +19,19 @@ MAX_PUBLIC_SUBMISSION_BYTES = int(
     os.getenv("MAX_PUBLIC_SUBMISSION_BYTES", str(64 * 1024))
 )
 
-static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "widget")
-if os.path.exists(static_dir):
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+# Base directory pointing to project root
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# 1. Embeddable widget static files (/static/widget.js, /static/widget.css)
+widget_static = BASE_DIR / "frontend" / "widget"
+if widget_static.exists():
+    app.mount("/static", StaticFiles(directory=str(widget_static)), name="static")
+
+# 2. Tenant dashboard static files (/dashboard/index.html, /dashboard/app.js, etc.)
+dashboard_static = BASE_DIR / "frontend" / "dashboard"
+if dashboard_static.exists():
+    app.mount("/dashboard", StaticFiles(directory=str(dashboard_static), html=True), name="dashboard")
+
 
 @app.middleware("http")
 async def limit_public_submission_size(request: Request, call_next):
@@ -59,6 +70,7 @@ async def limit_public_submission_size(request: Request, call_next):
 
     return await call_next(request)
 
+
 class TenantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,15 +78,18 @@ class TenantResponse(BaseModel):
     customer_name: str
     customer_email: str
 
+
 @app.get("/health")
 def health_check():
-    return {"status" : "ok"}
+    return {"status": "ok"}
+
 
 @app.get("/me", response_model=TenantResponse)
 def read_current_tenant(
     current_tenant: Annotated[Tenant, Depends(get_current_tenant)]
 ):
     return current_tenant
+
 
 app.include_router(widgets_router)
 app.include_router(submissions_router)

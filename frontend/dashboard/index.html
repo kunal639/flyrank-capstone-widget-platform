@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tenant Dashboard — FlyRank</title>
+  <link rel="stylesheet" href="/dashboard/app.css">
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">FlyRank Platform</div>
+    <ul class="nav-links">
+      <li class="nav-item active" onclick="switchTab('widgets')">Widgets</li>
+      <li class="nav-item" onclick="switchTab('submissions')">Submissions</li>
+    </ul>
+
+    <div class="auth-box">
+      <label for="tenantToken"><strong>Tenant Token (Auth)</strong></label>
+      <input type="text" id="tenantToken" placeholder="Paste Tenant UUID..." onchange="saveToken()">
+      <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Sets <code>Authorization: Bearer &lt;id&gt;</code></p>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="content">
+    <div id="statusAlert"></div>
+
+    <!-- WIDGETS VIEW -->
+    <section id="widgetsSection" class="section active">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h2>Widget Management</h2>
+        <button class="btn btn-primary" onclick="showCreateWidgetModal()">+ New Widget</button>
+      </div>
+
+      <!-- Create Form (Hidden by default) -->
+      <div id="createWidgetCard" class="card" style="display: none;">
+        <h3>Create New Widget</h3>
+        <div style="display: grid; gap: 0.75rem; max-width: 480px;">
+          <div>
+            <label>Title</label>
+            <input type="text" id="newWidgetTitle" style="width: 100%; padding: 0.4rem;" placeholder="e.g. Contact Us">
+          </div>
+          <div>
+            <label>Widget Type ID</label>
+            <input type="text" id="newWidgetTypeId" style="width: 100%; padding: 0.4rem;" placeholder="Widget Type UUID">
+          </div>
+          <div>
+            <label>Allowed Origins (comma-separated)</label>
+            <input type="text" id="newWidgetOrigins" style="width: 100%; padding: 0.4rem;" placeholder="http://localhost:3000, https://example.com">
+          </div>
+          <div>
+            <button class="btn btn-primary" onclick="createWidget()">Create</button>
+            <button class="btn btn-secondary" onclick="hideCreateWidgetModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Widgets Table -->
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Widget ID</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="widgetsTableBody">
+            <tr><td colspan="3">Set Tenant Token or click refresh...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Field Configuration Panel -->
+      <div id="fieldConfigCard" class="card" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3 id="fieldConfigTitle">Configure Fields</h3>
+          <button class="btn btn-secondary" onclick="closeFieldConfig()">Close</button>
+        </div>
+        <p style="color: #64748b; font-size: 0.85rem; margin-bottom: 1rem;">
+          Configure display order and requirement status.
+        </p>
+
+        <div id="fieldConfigList"></div>
+
+        <div style="margin-top: 1.25rem;">
+          <button class="btn btn-primary" onclick="saveFieldConfiguration()">Save Configuration</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SUBMISSIONS VIEW -->
+    <section id="submissionsSection" class="section">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h2>Submissions</h2>
+        <button class="btn btn-secondary" onclick="loadSubmissions()">Refresh</button>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Summary</th>
+              <th>Origin / Geo</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="submissionsTableBody">
+            <tr><td colspan="4">Loading submissions...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Submission Detail Modal/Panel -->
+      <div id="submissionDetailCard" class="card" style="display: none;">
+        <h3>Submission Details</h3>
+        <div id="submissionDetailBody"></div>
+        <button class="btn btn-secondary" style="margin-top: 1rem;" onclick="closeSubmissionDetail()">Close</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>
