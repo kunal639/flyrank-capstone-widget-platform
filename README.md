@@ -51,7 +51,7 @@ uv sync
 Create your local PostgreSQL database (e.g., via `psql` or pgAdmin):
 
 ```sql
-CREATE DATABASE flyrank;
+CREATE DATABASE widget_platform;
 ```
 
 Copy the environment template and ensure your PostgreSQL user, password, port, and database name match:
@@ -63,7 +63,7 @@ cp .env.example .env
 Example connection string inside `.env`:
 
 ```
-DATABASE_URL=postgresql://postgres:your_password@localhost:5432/flyrank
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/widget_platform
 ```
 
 ### 3. Run Database Migrations
