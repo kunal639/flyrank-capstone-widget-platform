@@ -68,22 +68,47 @@ function switchTab(tab) {
 // ----------------- WIDGET CRUD ----------------- //
 
 async function loadWidgets() {
+  const tbody = document.getElementById("widgetsTableBody");
+  const token = localStorage.getItem("tenant_token");
+
+  // 1. If no token is set yet, show an onboarding prompt instead of calling the API
+  if (!token) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="3" style="text-align: center; padding: 2rem; color: #64748b;">
+          <strong>Workspace Not Connected</strong><br>
+          <span style="font-size: 0.85rem;">Please paste your Tenant Token in the sidebar to view your widgets.</span>
+        </td>
+      </tr>`;
+    return;
+  }
+
   try {
     const res = await fetch("/widgets", { headers: getAuthHeader() });
+    
+    // 2. Handle invalid/expired token gracefully
+    if (res.status === 401 || res.status === 403) {
+      closeFieldConfig();
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="3" style="text-align: center; padding: 2rem; color: #ef4444;">
+            <strong>Authentication Failed</strong><br>
+            <span style="font-size: 0.85rem;">The provided Tenant Token is invalid. Please check the token in the sidebar.</span>
+          </td>
+        </tr>`;
+      return;
+    }
+
     if (!res.ok) {
-      if (res.status === 401 || res.status === 403) {
-        closeFieldConfig();
-      }
-      throw new Error(`HTTP ${res.status}`);
+      throw new Error(`Server returned status ${res.status}`);
     }
 
     const data = await res.json();
-    const tbody = document.getElementById("widgetsTableBody");
     tbody.innerHTML = "";
 
     const widgets = data.widgets || [];
     if (widgets.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="3">No widgets found for this workspace. Click "+ New Widget" above.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="3">No widgets found for this workspace. Click "+ New Widget" above to create one.</td></tr>`;
       return;
     }
 
@@ -100,8 +125,13 @@ async function loadWidgets() {
       tbody.appendChild(tr);
     });
   } catch (err) {
-    document.getElementById("widgetsTableBody").innerHTML =
-      `<tr><td colspan="3" style="color:red">Failed to load widgets: ${err.message}</td></tr>`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="3" style="text-align: center; padding: 2rem; color: #ef4444;">
+          <strong>Unable to load widgets</strong><br>
+          <span style="font-size: 0.85rem;">Please check your connection and refresh the page.</span>
+        </td>
+      </tr>`;
   }
 }
 
@@ -249,15 +279,51 @@ function closeFieldConfig() {
 
 async function loadSubmissions() {
   const tbody = document.getElementById("submissionsTableBody");
+  const token = localStorage.getItem("tenant_token");
+
+  // 1. Guard against empty auth state before firing an unauthenticated request
+  if (!token) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2rem; color: #64748b;">
+          <strong>Workspace Not Connected</strong><br>
+          <span style="font-size: 0.85rem;">Please paste your Tenant Token in the sidebar to view submissions.</span>
+        </td>
+      </tr>`;
+    return;
+  }
+
   try {
     const res = await fetch("/submissions", { headers: getAuthHeader() });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    // 2. Handle invalid or expired token gracefully
+    if (res.status === 401 || res.status === 403) {
+      closeSubmissionDetail();
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="4" style="text-align: center; padding: 2rem; color: #ef4444;">
+            <strong>Authentication Failed</strong><br>
+            <span style="font-size: 0.85rem;">The provided Tenant Token is invalid. Please check the token in the sidebar.</span>
+          </td>
+        </tr>`;
+      return;
+    }
+
+    if (!res.ok) {
+      throw new Error(`Server returned status ${res.status}`);
+    }
+
     const data = await res.json();
     const subs = data.submissions || [];
 
     tbody.innerHTML = "";
     if (subs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4">No submissions recorded yet.</td></tr>`;
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="4" style="text-align: center; padding: 2rem; color: #64748b;">
+            No submissions recorded yet for this workspace.
+          </td>
+        </tr>`;
       return;
     }
 
@@ -276,7 +342,13 @@ async function loadSubmissions() {
       tbody.appendChild(tr);
     });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" style="color:red">Failed to load submissions: ${err.message}</td></tr>`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2rem; color: #ef4444;">
+          <strong>Unable to load submissions</strong><br>
+          <span style="font-size: 0.85rem;">Please check your connection and refresh the page.</span>
+        </td>
+      </tr>`;
   }
 }
 

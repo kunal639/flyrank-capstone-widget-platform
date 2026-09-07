@@ -31,7 +31,6 @@
       apiBase = window.location.origin;
     }
   }
-  // Trim trailing slash
   apiBase = apiBase.replace(/\/+$/, "");
 
   // 2. Inject CSS if not already present
@@ -44,10 +43,10 @@
     document.head.appendChild(link);
   }
 
-  // 3. Create Root Mount Point
+  // 3. Create Root Mount Point (placed right after the script tag)
   var mountPoint = document.createElement("div");
   mountPoint.className = "fw-widget-container";
-  mountPoint.innerHTML = '<p class="fw-label">Loading widget...</p>';
+  mountPoint.innerHTML = '<p class="fw-label">Loading form...</p>';
   currentScript.parentNode.insertBefore(mountPoint, currentScript.nextSibling);
 
   // 4. Generate UUID v4 for idempotency
@@ -69,7 +68,7 @@
   })
     .then(function (res) {
       if (!res.ok) {
-        throw new Error("HTTP error " + res.status);
+        throw new Error("HTTP " + res.status);
       }
       return res.json();
     })
@@ -77,9 +76,9 @@
       renderWidget(config);
     })
     .catch(function (err) {
-      console.error("[FlyRank Widget] Failed to load configuration:", err);
+      console.warn("[FlyRank Widget] Failed to load configuration:", err.message);
       mountPoint.innerHTML =
-        '<div class="fw-alert fw-alert-error">Failed to load widget. Please try again later.</div>';
+        '<div class="fw-alert fw-alert-error">Unable to load form right now. Please try again later.</div>';
     });
 
   // 6. Form Renderer
@@ -97,7 +96,7 @@
     var form = document.createElement("form");
     form.noValidate = true;
 
-    // Honeypot Field (hidden from humans, filled by dumb bots)
+    // Honeypot Field (hidden from humans, filled by spam bots)
     var hpWrapper = document.createElement("div");
     hpWrapper.className = "fw-hidden-honeypot";
     hpWrapper.setAttribute("aria-hidden", "true");
@@ -122,7 +121,7 @@
       if (field.required) {
         var reqMark = document.createElement("span");
         reqMark.className = "fw-required-mark";
-        reqMark.textContent = "*";
+        reqMark.textContent = " *";
         label.appendChild(reqMark);
       }
 
@@ -160,7 +159,7 @@
       e.preventDefault();
       messageContainer.innerHTML = "";
 
-      // Client-side quick UX validation
+      // Quick Client-Side Validation
       var hasError = false;
       var fieldInputs = form.querySelectorAll("[data-field-id]");
       for (var i = 0; i < fieldInputs.length; i++) {
@@ -189,7 +188,6 @@
         }
       });
 
-      // Prepare Payload adhering exactly to docs/api.md
       var payload = {
         widget_id: widgetId,
         idempotency_key: generateUUID(),
@@ -197,7 +195,6 @@
         fields: submittedFields
       };
 
-      // Loading state
       submitBtn.disabled = true;
       submitBtn.textContent = "Sending...";
 
@@ -211,22 +208,33 @@
       })
         .then(function (res) {
           if (res.status === 201) {
-            return res.json().then(function () {
-              form.style.display = "none";
-              messageContainer.innerHTML =
-                '<div class="fw-alert fw-alert-success">Thanks! Your submission was received.</div>';
-            });
+            form.style.display = "none";
+            messageContainer.innerHTML =
+              '<div class="fw-alert fw-alert-success">Thanks! Your submission was received.</div>';
+            return;
+          }
+
+          // Polite client messaging with console status warning
+          console.warn("[FlyRank Widget] Submission response status:", res.status);
+
+          if (res.status === 429) {
+            messageContainer.innerHTML =
+              '<div class="fw-alert fw-alert-error">Too many attempts. Please wait a moment and try again.</div>';
+          } else if (res.status === 403) {
+            messageContainer.innerHTML =
+              '<div class="fw-alert fw-alert-error">Submissions from this website domain are not permitted.</div>';
+          } else if (res.status === 413) {
+            messageContainer.innerHTML =
+              '<div class="fw-alert fw-alert-error">Your submission is too large. Please shorten your message.</div>';
           } else {
-            return res.json().catch(function () { return {}; }).then(function () {
-              messageContainer.innerHTML =
-                '<div class="fw-alert fw-alert-error">Something went wrong. Please try again.</div>';
-            });
+            messageContainer.innerHTML =
+              '<div class="fw-alert fw-alert-error">Submission could not be completed. Please check your inputs.</div>';
           }
         })
         .catch(function (networkErr) {
-          console.error("[FlyRank Widget] Submission failed:", networkErr);
+          console.error("[FlyRank Widget] Submission network failure:", networkErr);
           messageContainer.innerHTML =
-            '<div class="fw-alert fw-alert-error">Unable to send submission. Check your connection.</div>';
+            '<div class="fw-alert fw-alert-error">Network error. Please check your connection and try again.</div>';
         })
         .finally(function () {
           submitBtn.disabled = false;
