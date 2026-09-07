@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
-from app.geo import GeoEnricher, IpApiProvider, IpWhoIsProvider
+from app.geo import GeoEnricher, IpApiProvider, IpApiCoProvider
 from app.models.field_definition import FieldDefinition
 from app.models.submission import Submission
 from app.models.submission_field_value import SubmissionFieldValue
@@ -36,7 +36,7 @@ submission_rate_limiter = SlidingWindowRateLimiter(
     max_requests=int(os.getenv("PUBLIC_SUBMISSION_RATE_LIMIT", "10")),
     window_seconds=int(os.getenv("PUBLIC_SUBMISSION_RATE_WINDOW_SECONDS", "60")),
 )
-geo_enricher = GeoEnricher((IpApiProvider(), IpWhoIsProvider()))
+geo_enricher = GeoEnricher((IpApiProvider(), IpApiCoProvider()))
 
 
 def _is_missing_required_value(value: Any) -> bool:

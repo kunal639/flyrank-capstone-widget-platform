@@ -18,25 +18,33 @@ def _fetch_json(url: str) -> dict[str, Any] | None:
 
 class IpApiProvider:
     def lookup(self, ip_address: str) -> dict[str, Any] | None:
-        data = _fetch_json(f"https://ipapi.co/{quote(ip_address)}/json/")
-        if data.get("error"):
+        data = _fetch_json(
+            f"http://ip-api.com/json/{quote(ip_address)}"
+        )
+
+        if not data or data.get("status") != "success":
             return None
+
         return {
-            "country": data.get("country_name"),
+            "country": data.get("country"),
             "city": data.get("city"),
-            "region": data.get("region"),
-            "latitude": data.get("latitude"),
-            "longitude": data.get("longitude"),
+            "region": data.get("regionName"),
+            "latitude": data.get("lat"),
+            "longitude": data.get("lon"),
         }
 
 
-class IpWhoIsProvider:
+class IpApiCoProvider:
     def lookup(self, ip_address: str) -> dict[str, Any] | None:
-        data = _fetch_json(f"https://ipwho.is/{quote(ip_address)}")
-        if not data.get("success", False):
+        data = _fetch_json(
+            f"https://ipapi.co/{quote(ip_address)}/json/"
+        )
+
+        if not data or data.get("error"):
             return None
+
         return {
-            "country": data.get("country"),
+            "country": data.get("country_name"),
             "city": data.get("city"),
             "region": data.get("region"),
             "latitude": data.get("latitude"),
